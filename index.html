@@ -746,10 +746,11 @@ const NUM={'0':'zero','1':'one','2':'two','3':'three','4':'four','5':'five','6':
 const SAME={gnat:['nat','knat','net'],gnaw:['naw','gnar','nor'],gnome:['nome','know','gnomes'],eight:['ate'],two:['to','too'],four:['for'],one:['won'],pear:['pair','pare'],bear:['bare'],tear:['tare','terror'],wear:['where','ware'],night:['knight'],sun:['son'],sign:['sine'],see:['sea'],bee:['be'],tea:['t','tee'],read:['red','reed'],made:['maid'],flower:['flour'],pe:['p.e','pee','p'],neigh:['nay','neigh'],sleigh:['slay'],ghoul:['ghoul','gool','goal'],high:['hi','hai'],cut:['cat'],tofu:['tofu'],art:['arts'],week:['weak'],heavy:['heavey'],lamb:['lam','lamp'],crumb:['crum','crump'],twig:['twig'],clay:['clay'],there:['their',"they're"],its:["it's"]};
 function norm(s){return s.toLowerCase().replace(/[’']/g,'').replace(/-/g,' ').replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(Boolean).map(x=>NUM[x]||x);}
 function lev(a,b){const m=a.length,n=b.length;const d=Array.from({length:m+1},(_,i)=>[i,...Array(n).fill(0)]);for(let j=1;j<=n;j++)d[0][j]=j;for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
-function wordMatch(t,h){if(t===h)return true;if((SAME[t]||[]).includes(h))return true;if(t.length>=5&&lev(t,h)<=1)return true;if(t+'s'===h||h+'s'===t)return true;return false;}
+// 句子要嚴格（need / needs、look / looks 是文法重點）；單一單字才放寬，避免辨識誤差
+function wordMatch(t,h,single){if(t===h)return true;if((SAME[t]||[]).includes(h))return true;if(!single)return false;if(t.length>=5&&lev(t,h)<=1)return true;if(t+'s'===h||h+'s'===t)return true;return false;}
 function grade(target,alts){
   const tw=norm(target);let best={score:-1,marks:[]};
-  alts.forEach(a=>{const hw=norm(a);const used=new Set();const marks=tw.map(t=>{const j=hw.findIndex((h,k)=>!used.has(k)&&wordMatch(t,h));if(j>=0){used.add(j);return true;}return false;});const sc=marks.filter(Boolean).length/tw.length;if(sc>best.score)best={score:sc,marks,heard:a};});
+  alts.forEach(a=>{const hw=norm(a);const used=new Set();const marks=tw.map(t=>{const j=hw.findIndex((h,k)=>!used.has(k)&&wordMatch(t,h,tw.length===1));if(j>=0){used.add(j);return true;}return false;});const sc=marks.filter(Boolean).length/tw.length;if(sc>best.score)best={score:sc,marks,heard:a};});
   return best;
 }
 let K=null;
