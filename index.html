@@ -780,32 +780,59 @@ function renderSpeak(){
   setTimeout(()=>say(it.t),300);
 }
 function norm2words(t){return t.split(/\s+/);}
-let REC=null;
-function listen(){
-  if(!SR){toast('請用 Chrome 或 Edge 瀏覽器開這個遊戲，才能用麥克風');return;}
-  if(REC){try{REC.stop();}catch(e){}return;}
-  speechSynthesis&&speechSynthesis.cancel();
-  const it=K.items[K.idx],mic=$('#mic'),hd=$('#heard');
-  const r=new SR();REC=r;r.lang='en-US';r.interimResults=false;r.maxAlternatives=5;
-  mic.classList.add('on');mic.textContent='👂 正在聽…';hd.textContent='請大聲說出上面的英文';
-  r.onresult=e=>{
-    const alts=[...e.results[0]].map(a=>a.transcript);const g=grade(it.t,alts);
-    const spans=document.querySelectorAll('#tg .w');
-    // 句子中可能有標點，用一樣的拆法對應
-    let mi=0;spans.forEach(s=>{const n=norm(s.textContent).length;if(!n)return;const ok=g.marks.slice(mi,mi+n).every(Boolean);s.className='w '+(ok?'ok':'no');mi+=n;});
-    const st=g.score>=.9?3:g.score>=.6?2:g.score>0.25?1:0;
-    hd.innerHTML=`我聽到：「<b>${esc(g.heard||'')}</b>」`;
-    $('#bs').textContent=st?'⭐'.repeat(st):'😅 再試一次！';
-    st>=2?sfx('hit'):sfx('bad');
-    const key=it.t;const prev=S.speakBest[key]||0;if(st===3&&prev<3){S.coins+=3;toast('三顆星！+3 🪙');}S.speakBest[key]=Math.max(prev,st);save();
-    K.last=g.score;
-    $('#nx').innerHTML=`<button class="btn ghost" onclick="listen()">🔁 再說一次</button><button class="btn green" onclick="speakNext(${g.score})">下一題 ➜</button>`;
-  };
-  r.onerror=e=>{hd.textContent=e.error==='not-allowed'||e.error==='service-not-allowed'?'⚠️ 要先允許使用麥克風喔（網址列旁邊的🎤圖示）':e.error==='no-speech'?'沒聽到聲音，靠近一點再說一次 🙂':e.error==='network'?'⚠️ 語音辨識需要網路，請確認有連上網路':'出了點問題，再按一次試試看';};
-  r.onend=()=>{REC=null;mic.classList.remove('on');mic.textContent='🎤 換我說';};
-  try{r.start();}catch(e){REC=null;hd.textContent='麥克風啟動失敗，再按一次試試看';}
+let REC=null,RECDONE=null;
+function showGrade(it,alts){
+  const hd=$('#heard');const g=grade(it.t,alts);
+  const spans=document.querySelectorAll('#tg .w');
+  let mi=0;spans.forEach(s=>{const n=norm(s.textContent).length;if(!n)return;const ok=g.marks.slice(mi,mi+n).every(Boolean);s.className='w '+(ok?'ok':'no');mi+=n;});
+  const st=g.score>=.9?3:g.score>=.6?2:g.score>0.25?1:0;
+  hd.innerHTML=`我聽到：「<b>${esc(g.heard||'')}</b>」`;
+  $('#bs').textContent=st?'⭐'.repeat(st):'😅 再試一次！';
+  st>=2?sfx('hit'):sfx('bad');
+  const key=it.t;const prev=S.speakBest[key]||0;if(st===3&&prev<3){S.coins+=3;toast('三顆星！+3 🪙');}S.speakBest[key]=Math.max(prev,st);save();
+  $('#nx').innerHTML=`<button class="btn ghost" onclick="listen()">🔁 再說一次</button><button class="btn green" onclick="speakNext(${g.score})">下一題 ➜</button>`;
 }
-function speakNext(sc){if(REC){try{REC.abort();}catch(e){}REC=null;}K.scores.push(sc);K.idx++;renderSpeak();}
+// 辨識不到時，不讓孩子卡住：可以再試、自己評分或跳過
+function speakFail(msg){
+  const hd=$('#heard');if(!hd)return;hd.innerHTML=msg;$('#bs').textContent='';
+  $('#nx').innerHTML=`<button class="btn" onclick="listen()">🎤 再試一次</button><button class="btn green" onclick="speakNext(1)">😀 我有唸好</button><button class="btn ghost" onclick="speakNext(0)">跳過 ➜</button>`;
+}
+function listen(){
+  if(!SR){speakFail('⚠️ 這個瀏覽器不能聽你說話。<br>iPad／iPhone 請用 <b>Safari</b>，電腦請用 <b>Chrome</b> 或 <b>Edge</b>；從 LINE 點開的話，請按右下角改用瀏覽器開啟。');return;}
+  if(REC){if(RECDONE)RECDONE();return;} // 再按一次＝我說完了
+  try{speechSynthesis.cancel();}catch(e){}
+  const it=K.items[K.idx],mic=$('#mic'),hd=$('#heard');
+  const r=new SR();REC=r;r.lang='en-US';r.interimResults=true;r.continuous=false;r.maxAlternatives=5;
+  let alts=[],done=false,heardSound=false,errMsg='',quiet=null,maxT=null;
+  const reset=()=>{REC=null;RECDONE=null;clearTimeout(quiet);clearTimeout(maxT);if(mic){mic.classList.remove('on');mic.textContent='🎤 換我說';}};
+  const finish=()=>{
+    if(done)return;done=true;try{r.stop();}catch(e){}reset();
+    if(K.items[K.idx]!==it)return;
+    if(alts.length&&alts[0].trim())showGrade(it,alts);
+    else speakFail(errMsg||(heardSound?'有聽到聲音，但沒聽清楚 🤔 靠近一點、慢慢大聲說一次':'😶 麥克風沒有收到聲音。<br>請確認：① 有按「允許」麥克風　② 平板沒有靜音或接著藍牙耳機　③ 靠近一點大聲說'));
+  };
+  RECDONE=finish;
+  mic.classList.add('on');mic.textContent='✋ 說完按這裡';hd.textContent='準備中…請等一下';$('#bs').textContent='';
+  r.onstart=()=>{hd.innerHTML='🎙️ <b>現在請大聲說出上面的英文！</b>';};
+  r.onaudiostart=()=>{heardSound=true;};
+  r.onspeechstart=()=>{heardSound=true;hd.innerHTML='👂 有聽到你的聲音，繼續說…';};
+  r.onresult=e=>{
+    const list=[...e.results];const full=list.map(x=>x[0].transcript).join(' ').trim();
+    alts=list.length===1?[...list[0]].map(a=>a.transcript):[full];
+    if(full)hd.innerHTML='👂 '+esc(full);
+    clearTimeout(quiet);
+    if(list[list.length-1].isFinal)finish();else quiet=setTimeout(finish,1600);
+  };
+  r.onerror=e=>{
+    const m={'not-allowed':'⚠️ 麥克風被擋住了。請按網址列的「aA」或🔒圖示，把麥克風改成「允許」，再重新整理頁面。','service-not-allowed':'⚠️ 這台裝置沒有開語音辨識。iPad／iPhone 請到「設定 → 一般 → 鍵盤」打開「聽寫」，再回來試。','no-speech':'沒聽到聲音，靠近一點再大聲說一次 🙂','audio-capture':'⚠️ 找不到麥克風，請確認平板或電腦的麥克風可以用。','network':'⚠️ 語音辨識需要網路，請確認有連上網路。'};
+    if(e.error!=='aborted')errMsg=m[e.error]||('出了點問題（'+esc(e.error)+'），再按一次試試看');
+    if(e.error!=='aborted'&&!alts.length)finish();
+  };
+  r.onend=()=>{if(!done)finish();};
+  maxT=setTimeout(finish,9000);
+  try{r.start();}catch(e){errMsg='麥克風啟動失敗，再按一次試試看';finish();}
+}
+function speakNext(sc){if(REC){try{REC.abort();}catch(e){}REC=null;RECDONE=null;}K.scores.push(sc);K.idx++;renderSpeak();}
 
 /* ---------- 商店、圖鑑、家長說明 ---------- */
 function renderShop(){
