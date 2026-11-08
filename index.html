@@ -802,7 +802,10 @@ function listen(){
   if(REC){if(RECDONE)RECDONE();return;} // 再按一次＝我說完了
   try{speechSynthesis.cancel();}catch(e){}
   const it=K.items[K.idx],mic=$('#mic'),hd=$('#heard');
-  const r=new SR();REC=r;r.lang='en-US';r.interimResults=true;r.continuous=false;r.maxAlternatives=5;
+  const nWords=norm(it.t).length,isSent=nWords>1;
+  // 句子：連續收音，停頓 3 秒才算說完；單字：停 1.8 秒
+  const QUIET=isSent?3000:1800,MAXMS=isSent?20000:9000;
+  const r=new SR();REC=r;r.lang='en-US';r.interimResults=true;r.continuous=isSent;r.maxAlternatives=5;
   let alts=[],done=false,heardSound=false,errMsg='',quiet=null,maxT=null;
   const reset=()=>{REC=null;RECDONE=null;clearTimeout(quiet);clearTimeout(maxT);if(mic){mic.classList.remove('on');mic.textContent='🎤 換我說';}};
   const finish=()=>{
@@ -812,16 +815,21 @@ function listen(){
     else speakFail(errMsg||(heardSound?'有聽到聲音，但沒聽清楚 🤔 靠近一點、慢慢大聲說一次':'😶 麥克風沒有收到聲音。<br>請確認：① 有按「允許」麥克風　② 平板沒有靜音或接著藍牙耳機　③ 靠近一點大聲說'));
   };
   RECDONE=finish;
-  mic.classList.add('on');mic.textContent='✋ 說完按這裡';hd.textContent='準備中…請等一下';$('#bs').textContent='';
+  mic.classList.add('on');mic.textContent='✋ 說完按這裡';hd.textContent='準備中…請等一下';if(isSent)document.querySelectorAll('#tg .w').forEach(x=>x.className='w');$('#bs').textContent='';
   r.onstart=()=>{hd.innerHTML='🎙️ <b>現在請大聲說出上面的英文！</b>';};
   r.onaudiostart=()=>{heardSound=true;};
   r.onspeechstart=()=>{heardSound=true;hd.innerHTML='👂 有聽到你的聲音，繼續說…';};
   r.onresult=e=>{
     const list=[...e.results];const full=list.map(x=>x[0].transcript).join(' ').trim();
     alts=list.length===1?[...list[0]].map(a=>a.transcript):[full];
-    if(full)hd.innerHTML='👂 '+esc(full);
+    if(full)hd.innerHTML='👂 '+esc(full)+(isSent?'<br><small>慢慢唸完，唸完按「✋ 說完按這裡」</small>':'');
+    if(isSent&&full){ // 邊唸邊把唸對的字變綠
+      const g=grade(it.t,alts.concat([full]));let mi=0;
+      document.querySelectorAll('#tg .w').forEach(x=>{const n=norm(x.textContent).length;if(!n)return;if(g.marks.slice(mi,mi+n).every(Boolean))x.className='w ok';mi+=n;});
+      if(g.score>=1){clearTimeout(quiet);quiet=setTimeout(finish,700);return;}
+    }
     clearTimeout(quiet);
-    if(list[list.length-1].isFinal)finish();else quiet=setTimeout(finish,1600);
+    if(!isSent&&list[list.length-1].isFinal)finish();else quiet=setTimeout(finish,QUIET);
   };
   r.onerror=e=>{
     const m={'not-allowed':'⚠️ 麥克風被擋住了。請按網址列的「aA」或🔒圖示，把麥克風改成「允許」，再重新整理頁面。','service-not-allowed':'⚠️ 這台裝置沒有開語音辨識。iPad／iPhone 請到「設定 → 一般 → 鍵盤」打開「聽寫」，再回來試。','no-speech':'沒聽到聲音，靠近一點再大聲說一次 🙂','audio-capture':'⚠️ 找不到麥克風，請確認平板或電腦的麥克風可以用。','network':'⚠️ 語音辨識需要網路，請確認有連上網路。'};
@@ -829,7 +837,7 @@ function listen(){
     if(e.error!=='aborted'&&!alts.length)finish();
   };
   r.onend=()=>{if(!done)finish();};
-  maxT=setTimeout(finish,9000);
+  maxT=setTimeout(finish,MAXMS);
   try{r.start();}catch(e){errMsg='麥克風啟動失敗，再按一次試試看';finish();}
 }
 function speakNext(sc){if(REC){try{REC.abort();}catch(e){}REC=null;RECDONE=null;}K.scores.push(sc);K.idx++;renderSpeak();}
