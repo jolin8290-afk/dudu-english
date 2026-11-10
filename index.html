@@ -459,39 +459,48 @@ function sfx(type){try{AC=AC||new (window.AudioContext||window.webkitAudioContex
 /* ---------- 背景音樂：瀏覽器即時合成的原創配樂 ---------- */
 function ensureAC(){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();}catch(e){}return AC;}
 const mtof=m=>440*Math.pow(2,(m-69)/12);
-// 每首：速度、4 個和弦、16 格節奏（x=打、.=休息），bass r=根音 o=高八度，arp 數字=和弦第幾個音
-const TRACKS={
-  // 柔和版：圓潤的音色、較慢的速度、輕輕的鼓
-  map:{bpm:92,vol:.5,wave:'sine',bassWave:'sine',arpUp:12,cut:1600,
-    chords:[[60,64,67],[55,59,62],[57,60,64],[53,57,60]],
-    kick:'x...............',snare:'................',hat:'................',
-    bass:'r.......o.......',arp:'0...1...2...1...'},
-  battle:{bpm:118,vol:.6,wave:'triangle',bassWave:'sine',arpUp:12,cut:1500,
-    chords:[[57,60,64],[53,57,60],[55,59,62],[52,56,59]],
-    kick:'x.......x.......',snare:'........x.......',hat:'....x.......x...',
-    bass:'r...r...r...o...',arp:'0.1.2.1.0.1.2.1.'},
-  boss:{bpm:130,vol:.65,wave:'triangle',bassWave:'sine',arpUp:12,cut:1700,
-    chords:[[57,60,64],[58,62,65],[57,60,64],[52,56,59]],
-    kick:'x...x...x...x...',snare:'....x.......x...',hat:'..x...x...x...x.',
-    bass:'r.r.r.r.r.r.o.r.',arp:'0102010201020102'}
-};
+// 柔和風格：慢速、沒有鼓、加一點回音；每座島、每種戰鬥都有自己的旋律（用代號產生，固定不變）
+function rng(str){let h=2166136261;for(const c of str)h=Math.imul(h^c.charCodeAt(0),16777619);return ()=>{h+=0x6D2B79F5;let t=h;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
+function makeSong(key){
+  const r=rng(key),minor=/^(battle|boss)/.test(key),boss=/^boss/.test(key);
+  const root=minor?[57,62,64][r()*3|0]:[60,62,65,67][r()*4|0];
+  const scale=minor?[0,3,5,7,10]:[0,2,4,7,9];
+  const prog=minor?(boss?[[0,3,7],[8,12,15],[5,8,12],[7,11,14]]:[[0,3,7],[8,12,15],[10,14,17],[7,10,14]]):[[0,4,7],[7,11,14],[9,12,16],[5,9,12]];
+  const chords=prog.map(c=>c.map(x=>x+root));
+  const notes=[];for(let o=0;o<3;o++)scale.forEach(d=>notes.push(root+d+12*o));
+  const lo=notes.findIndex(n=>n>=root+7),hi=notes.findIndex(n=>n>=root+24);
+  const rest=minor?.28:.42,mel=[],bell=[];let k=lo+(r()*4|0);
+  for(let st=0;st<32;st++){
+    const i=st%8,ch=chords[st>>3];
+    if(i===0){let best=-1;notes.forEach((n,j)=>{if(j>=lo&&j<=hi&&ch.some(c=>(n-c)%12===0)&&(best<0||Math.abs(j-k)<Math.abs(best-k)))best=j;});if(best>=0)k=best;mel.push(notes[k]);}
+    else if(r()<rest)mel.push(0);
+    else{k=Math.max(lo,Math.min(hi,k+[-2,-1,-1,1,1,2][r()*6|0]));mel.push(notes[k]);}
+    bell.push(i===0&&st%16===0?ch[2]+12:(i===6&&r()<.3?ch[1]+12:0));
+  }
+  return {bpm:minor?(boss?108:96):74+(r()*14|0),chords,mel,bell,pulse:minor,boss,wave:minor?'triangle':'sine'};
+}
+const SONGS={};const song=k=>SONGS[k]||(SONGS[k]=makeSong(k));
 let MG=null,NOISE=null;
 const MT={name:null,want:null,track:null,step:0,next:0,timer:null};
-function mNode(){ensureAC();if(!MG){MG=AC.createGain();MG.gain.value=.1;MG.connect(AC.destination);
-  NOISE=AC.createBuffer(1,AC.sampleRate*.5,AC.sampleRate);const d=NOISE.getChannelData(0);for(let k=0;k<d.length;k++)d[k]=Math.random()*2-1;}return MG;}
-function tone(wave,f,t,dur,vol,cut){const o=AC.createOscillator(),g=AC.createGain();o.type=wave;o.frequency.value=f;g.gain.setValueAtTime(.0008,t);g.gain.linearRampToValueAtTime(vol,t+.015);g.gain.exponentialRampToValueAtTime(.0008,t+dur);
-  if(cut){const fl=AC.createBiquadFilter();fl.type='lowpass';fl.frequency.value=cut;o.connect(fl);fl.connect(g);}else o.connect(g);g.connect(MG);o.start(t);o.stop(t+dur+.02);}
+function mNode(){ensureAC();if(!MG){
+  MG=AC.createGain();MG.gain.value=.12;
+  const lp=AC.createBiquadFilter();lp.type='lowpass';lp.frequency.value=2200;
+  const dl=AC.createDelay(1);dl.delayTime.value=.33;const fb=AC.createGain();fb.gain.value=.25;const wet=AC.createGain();wet.gain.value=.3;
+  MG.connect(lp);lp.connect(AC.destination);lp.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(wet);wet.connect(AC.destination);
+  NOISE=AC.createBuffer(1,AC.sampleRate*.5,AC.sampleRate);const d=NOISE.getChannelData(0);for(let q=0;q<d.length;q++)d[q]=Math.random()*2-1;}return MG;}
+function tone(wave,f,t,dur,vol){const o=AC.createOscillator(),g=AC.createGain();o.type=wave;o.frequency.value=f;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.03);g.gain.exponentialRampToValueAtTime(vol*.45,t+dur*.6);g.gain.exponentialRampToValueAtTime(.0001,t+dur+.25);
+  o.connect(g);g.connect(MG);o.start(t);o.stop(t+dur+.3);}
 function noise(t,dur,vol,hp){const n=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();n.buffer=NOISE;f.type='highpass';f.frequency.value=hp;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur);n.connect(f);f.connect(g);g.connect(MG);n.start(t);n.stop(t+dur+.02);}
-function kick(t,v){const o=AC.createOscillator(),g=AC.createGain();o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(45,t+.12);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+.18);o.connect(g);g.connect(MG);o.start(t);o.stop(t+.2);}
 function playStep(T,step,t,sp){
-  const bar=(step>>4)%4,i=step%16,ch=T.chords[bar],v=T.vol;
-  if(T.kick[i]==='x')kick(t,.45*v);
-  if(T.snare[i]==='x'){noise(t,.08,.08*v,2500);tone('sine',200,t,.08,.12*v);}
-  if(T.hat[i]==='x')noise(t,.025,.03*v,8000);
-  const b=T.bass[i];if(b!=='.')tone(T.bassWave,mtof(ch[0]-24+(b==='o'?12:0)),t,sp*3,.3*v,600);
-  const a=T.arp[i];if(a!=='.'){const n=a==='3'?ch[0]+12:ch[+a];tone(T.wave,mtof(n+T.arpUp),t,sp*2.2,.12*v,T.cut);}
+  const i=step%8,ch=T.chords[step>>3];
+  if(i%4===0)tone('sine',mtof(ch[0]-24),t,sp*3.5,.28);              // 低音
+  if(T.pulse&&(T.boss||i%2===1))tone('sine',mtof(ch[0]-12),t,sp*.7,.07); // 戰鬥時輕輕的心跳節奏
+  if(T.boss&&i%2===1)noise(t,.02,.012,8000);
+  if(T.mel[step])tone(T.wave,mtof(T.mel[step]),t,sp*1.8,.15);        // 旋律
+  if(T.bell[step])tone('sine',mtof(T.bell[step]),t,sp*3,.06);         // 鈴聲
 }
-function tick(){if(!MT.track||!AC)return;const sp=60/MT.track.bpm/4;if(MT.next<AC.currentTime-.05)MT.next=AC.currentTime+.05;while(MT.next<AC.currentTime+.12){playStep(MT.track,MT.step,MT.next,sp);MT.next+=sp;MT.step=(MT.step+1)%64;}}
+function tick(){if(!MT.track||!AC)return;const sp=60/MT.track.bpm/2;if(MT.next<AC.currentTime-.05)MT.next=AC.currentTime+.05;while(MT.next<AC.currentTime+.12){playStep(MT.track,MT.step,MT.next,sp);MT.next+=sp;MT.step=(MT.step+1)%32;}}
 function stopMusic(){MT.name=null;MT.track=null;if(MT.timer){clearInterval(MT.timer);MT.timer=null;}}
 // 切換場景音樂；name=null 代表安靜（例如發音挑戰要用麥克風）
 function music(name){
@@ -499,13 +508,13 @@ function music(name){
   if(S.music===false||!name){stopMusic();return;}
   if(MT.name===name&&MT.timer)return;
   try{mNode();}catch(e){return;}
-  MT.name=name;MT.track=TRACKS[name];MT.step=0;MT.next=AC.currentTime+.08;
+  MT.name=name;MT.track=song(name);MT.step=0;MT.next=AC.currentTime+.08;
   if(!MT.timer)MT.timer=setInterval(tick,25);
 }
 function toggleMusic(){S.music=S.music===false;save();if(S.music)music(MT.want||'map');else stopMusic();updMbtn();toast(S.music?'🎵 音樂開啟':'🔇 音樂關閉');}
 function updMbtn(){const b=$('#mbtn');if(!b)return;b.textContent=S.music===false?'🔇':'🎵';b.classList.toggle('off',S.music===false);}
 // 朗讀英文時把音樂調小，聽得比較清楚
-function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.03:.1,AC.currentTime,.08);}
+function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.03:.12,AC.currentTime,.08);}
 // 瀏覽器規定要先點一下畫面才能出聲音
 document.addEventListener('pointerdown',()=>{ensureAC();if(MT.want&&S.music!==false&&!MT.timer)music(MT.want);},true);
 const sayBtn=(t,cls='say')=>`<button class="${cls}" data-say="${esc(t)}" title="聽發音">🔊</button>`;
@@ -557,7 +566,7 @@ function renderMap(){
 
 /* ---------- 島嶼選單 ---------- */
 function renderIsland(i){
-  music('map');
+  music('isl'+i);
   SP=null;const isl=ISLANDS[i],p=prog(isl.id);
   const g=(isl.grammar||[]).map(x=>{const full=x[1].replace('___',x[2]);return `<button data-say="${esc(x[0]+' '+full)}">🔊 ${esc(x[0])} <b>${esc(full)}</b></button>`;}).join('');
   const rd=(isl.read||[]).map(t=>`<button data-say="${esc(t)}">🔊 ${esc(t)}</button>`).join('');
@@ -664,7 +673,7 @@ function qHTML(q){
 }
 function renderBattle(intro){
   const w=B.waves[B.wave],q=B.q;
-  music(w.boss?'boss':'battle');
+  music((w.boss?'boss':'battle')+(B.review?'R':B.ii));
   app.innerHTML=`<div class="battle" id="bt">
    <div class="bt-top"><button class="back" onclick="quitBattle()">✕ 撤退</button><div class="wave">${B.review?'💢 錯題復仇戰':B.isl.emoji+' '+B.isl.name}・第 ${B.wave+1}/${B.waves.length} 隻${w.boss?' 👑魔王':''}</div><div class="combo ${B.combo>=3?'hot':''}">${B.combo>=2?'🔥 '+B.combo+' 連擊！':''}</div></div>
    <div class="arena" id="arena"><div class="mon ${w.boss?'boss':''}" id="mon">${w.e}</div><div class="mname">${esc(w.n)}</div><div class="hp"><div id="hpbar" style="width:${w.hp/w.max*100}%"></div></div></div>
