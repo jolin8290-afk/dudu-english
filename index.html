@@ -173,6 +173,9 @@ details summary{font-weight:700;cursor:pointer;font-size:17px}
 .shop span{font-size:52px;display:block}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(120px);background:#16233a;color:#fff;padding:12px 20px;border-radius:16px;font-weight:700;transition:transform .3s;z-index:9;max-width:90vw;text-align:center}
 #toast.show{transform:translateX(-50%) translateY(0)}
+#mbtn{position:fixed;right:14px;bottom:14px;z-index:10;width:56px;height:56px;border-radius:50%;border:0;font-size:26px;background:#fff;box-shadow:0 5px 0 rgba(0,0,0,.25)}
+#mbtn.off{opacity:.55;filter:grayscale(1)}
+#mbtn.on{animation:pulse 1.2s infinite}
 .confetti{position:fixed;top:-40px;font-size:30px;pointer-events:none;animation:fall linear forwards;z-index:8}
 @keyframes fall{to{transform:translateY(110vh) rotate(540deg)}}
 /* 球員造型與晉級 */
@@ -209,6 +212,7 @@ details summary{font-weight:700;cursor:pointer;font-size:17px}
 <body>
 <div id="app"></div>
 <div id="toast"></div>
+<button id="mbtn" onclick="toggleMusic()" title="音樂開關">🎵</button>
 <script>
 /* =========================================================
    嘟嘟英文冒險島 — 何嘉仁 四上（2026/8/31–11/6 聯絡簿內容）
@@ -447,10 +451,62 @@ function avatarSVG(sport,rank,num,size){
 let VOICE=null;
 function pickVoice(){if(!('speechSynthesis' in window))return;const vs=speechSynthesis.getVoices();VOICE=vs.find(v=>/^en[-_]US/i.test(v.lang)&&/Google|Jenny|Aria|Samantha|Zira/i.test(v.name))||vs.find(v=>/^en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
-function say(t,rate=.9){if(!('speechSynthesis' in window)||!t)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='en-US';if(VOICE)u.voice=VOICE;u.rate=rate;speechSynthesis.speak(u);}
+function say(t,rate=.9){if(!('speechSynthesis' in window)||!t)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='en-US';if(VOICE)u.voice=VOICE;u.rate=rate;duck(true);clearTimeout(say.t);say.t=setTimeout(()=>duck(false),6000);u.onend=u.onerror=()=>{clearTimeout(say.t);duck(false);};speechSynthesis.speak(u);}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-say]');if(b){e.stopPropagation();say(b.dataset.say,b.dataset.slow?.55:.9);}},true);
 let AC=null;
 function sfx(type){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const seq={hit:[[660,.06],[990,.12]],bad:[[220,.15],[150,.25]],win:[[523,.12],[659,.12],[784,.12],[1047,.35]],coin:[[1200,.05],[1700,.1]],boss:[[110,.2],[98,.3]]}[type];let t=AC.currentTime;seq.forEach(([f,d])=>{const o=AC.createOscillator(),g=AC.createGain();o.type=type==='bad'||type==='boss'?'sawtooth':'square';o.frequency.value=f;g.gain.setValueAtTime(.07,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+d);t+=d;});}catch(e){}}
+
+/* ---------- 背景音樂：瀏覽器即時合成的原創配樂 ---------- */
+function ensureAC(){try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();}catch(e){}return AC;}
+const mtof=m=>440*Math.pow(2,(m-69)/12);
+// 每首：速度、4 個和弦、16 格節奏（x=打、.=休息），bass r=根音 o=高八度，arp 數字=和弦第幾個音
+const TRACKS={
+  map:{bpm:112,vol:.55,wave:'triangle',bassWave:'triangle',arpUp:12,
+    chords:[[60,64,67],[55,59,62],[57,60,64],[53,57,60]],
+    kick:'x.......x.......',snare:'....x.......x...',hat:'..x...x...x...x.',
+    bass:'r...r.o.r...r.o.',arp:'0.1.2.1.0.1.2.3.'},
+  battle:{bpm:150,vol:.7,wave:'square',bassWave:'sawtooth',arpUp:12,
+    chords:[[57,60,64],[53,57,60],[55,59,62],[52,56,59]],
+    kick:'x...x...x.x.x...',snare:'....x.......x...',hat:'x.x.x.x.x.x.x.xx',
+    bass:'r.r.r.r.o.r.r.r.',arp:'0121012101210121'},
+  boss:{bpm:168,vol:.8,wave:'sawtooth',bassWave:'sawtooth',arpUp:12,
+    chords:[[57,60,64],[58,62,65],[57,60,64],[52,56,59]],
+    kick:'x.x.x.x.x.x.x.x.',snare:'....x.......x.xx',hat:'xxxxxxxxxxxxxxxx',
+    bass:'rrrrrrrorrrrrrro',arp:'0102010201020102',roll:true}
+};
+let MG=null,NOISE=null;
+const MT={name:null,want:null,track:null,step:0,next:0,timer:null};
+function mNode(){ensureAC();if(!MG){MG=AC.createGain();MG.gain.value=.14;MG.connect(AC.destination);
+  NOISE=AC.createBuffer(1,AC.sampleRate*.5,AC.sampleRate);const d=NOISE.getChannelData(0);for(let k=0;k<d.length;k++)d[k]=Math.random()*2-1;}return MG;}
+function tone(wave,f,t,dur,vol,cut){const o=AC.createOscillator(),g=AC.createGain();o.type=wave;o.frequency.value=f;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur);
+  if(cut){const fl=AC.createBiquadFilter();fl.type='lowpass';fl.frequency.value=cut;o.connect(fl);fl.connect(g);}else o.connect(g);g.connect(MG);o.start(t);o.stop(t+dur+.02);}
+function noise(t,dur,vol,hp){const n=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();n.buffer=NOISE;f.type='highpass';f.frequency.value=hp;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur);n.connect(f);f.connect(g);g.connect(MG);n.start(t);n.stop(t+dur+.02);}
+function kick(t,v){const o=AC.createOscillator(),g=AC.createGain();o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(45,t+.12);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+.18);o.connect(g);g.connect(MG);o.start(t);o.stop(t+.2);}
+function playStep(T,step,t,sp){
+  const bar=(step>>4)%4,i=step%16,ch=T.chords[bar],v=T.vol;
+  if(T.kick[i]==='x')kick(t,.9*v);
+  if(T.snare[i]==='x'||(T.roll&&bar===3&&i>=12)){noise(t,.12,.35*v,1500);tone('triangle',190,t,.08,.25*v);}
+  if(T.hat[i]==='x')noise(t,.035,.12*v,7000);
+  const b=T.bass[i];if(b!=='.')tone(T.bassWave,mtof(ch[0]-24+(b==='o'?12:0)),t,sp*1.6,.35*v,900);
+  const a=T.arp[i];if(a!=='.'){const n=a==='3'?ch[0]+12:ch[+a];tone(T.wave,mtof(n+T.arpUp),t,sp*.9,.13*v,T.wave==='triangle'?0:2600);}
+}
+function tick(){if(!MT.track||!AC)return;const sp=60/MT.track.bpm/4;if(MT.next<AC.currentTime-.05)MT.next=AC.currentTime+.05;while(MT.next<AC.currentTime+.12){playStep(MT.track,MT.step,MT.next,sp);MT.next+=sp;MT.step=(MT.step+1)%64;}}
+function stopMusic(){MT.name=null;MT.track=null;if(MT.timer){clearInterval(MT.timer);MT.timer=null;}}
+// 切換場景音樂；name=null 代表安靜（例如發音挑戰要用麥克風）
+function music(name){
+  MT.want=name;updMbtn();
+  if(S.music===false||!name){stopMusic();return;}
+  if(MT.name===name&&MT.timer)return;
+  try{mNode();}catch(e){return;}
+  MT.name=name;MT.track=TRACKS[name];MT.step=0;MT.next=AC.currentTime+.08;
+  if(!MT.timer)MT.timer=setInterval(tick,25);
+}
+function toggleMusic(){S.music=S.music===false;save();if(S.music)music(MT.want||'map');else stopMusic();updMbtn();toast(S.music?'🎵 音樂開啟':'🔇 音樂關閉');}
+function updMbtn(){const b=$('#mbtn');if(!b)return;b.textContent=S.music===false?'🔇':'🎵';b.classList.toggle('off',S.music===false);}
+// 朗讀英文時把音樂調小，聽得比較清楚
+function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.035:.14,AC.currentTime,.08);}
+// 瀏覽器規定要先點一下畫面才能出聲音
+document.addEventListener('pointerdown',()=>{ensureAC();if(MT.want&&S.music!==false&&!MT.timer)music(MT.want);},true);
 const sayBtn=(t,cls='say')=>`<button class="${cls}" data-say="${esc(t)}" title="聽發音">🔊</button>`;
 const slowBtn=t=>`<button class="say" data-say="${esc(t)}" data-slow="1" title="慢慢唸">🐢</button>`;
 
@@ -468,6 +524,7 @@ const starStr=n=>'⭐'.repeat(n)+'☆'.repeat(3-n);
 /* ---------- 開始畫面 ---------- */
 let pickH=S.hero;
 function renderStart(){
+  music('map');
   app.innerHTML=`<div class="panel center">
   <div class="logo">🏝️</div><h1>嘟嘟英文冒險島</h1>
   <p class="sub">何嘉仁四年級上學期英文複習<br>答對題目就能升級，從新秀一路晉級成傳奇球星！</p>
@@ -484,6 +541,7 @@ function startGame(){const v=$('#nm').value.trim();if(pickH==null){toast('先選
 
 /* ---------- 地圖 ---------- */
 function renderMap(){
+  music('map');
   SP=null;
   const nWrong=Object.keys(S.wrong).length;
   app.innerHTML=`${topbar()}<h2 class="maptitle">🗺️ 選一座島開始冒險</h2>
@@ -498,6 +556,7 @@ function renderMap(){
 
 /* ---------- 島嶼選單 ---------- */
 function renderIsland(i){
+  music('map');
   SP=null;const isl=ISLANDS[i],p=prog(isl.id);
   const g=(isl.grammar||[]).map(x=>{const full=x[1].replace('___',x[2]);return `<button data-say="${esc(x[0]+' '+full)}">🔊 ${esc(x[0])} <b>${esc(full)}</b></button>`;}).join('');
   const rd=(isl.read||[]).map(t=>`<button data-say="${esc(t)}">🔊 ${esc(t)}</button>`).join('');
@@ -604,6 +663,7 @@ function qHTML(q){
 }
 function renderBattle(intro){
   const w=B.waves[B.wave],q=B.q;
+  music(w.boss?'boss':'battle');
   app.innerHTML=`<div class="battle" id="bt">
    <div class="bt-top"><button class="back" onclick="quitBattle()">✕ 撤退</button><div class="wave">${B.review?'💢 錯題復仇戰':B.isl.emoji+' '+B.isl.name}・第 ${B.wave+1}/${B.waves.length} 隻${w.boss?' 👑魔王':''}</div><div class="combo ${B.combo>=3?'hot':''}">${B.combo>=2?'🔥 '+B.combo+' 連擊！':''}</div></div>
    <div class="arena" id="arena"><div class="mon ${w.boss?'boss':''}" id="mon">${w.e}</div><div class="mname">${esc(w.n)}</div><div class="hp"><div id="hpbar" style="width:${w.hp/w.max*100}%"></div></div></div>
@@ -658,6 +718,7 @@ function waveCleared(){
   },900);
 }
 function endBattle(win){
+  music(null);
   SP=null;const stars=win?(B.hearts>=4?3:B.hearts>=2?2:1):0;
   let msg='';
   if(win){B.coins+=20;if(!B.review){const p=prog(B.isl.id);if(stars>p.stars)msg=`新紀錄！${starStr(stars)}`;p.stars=Math.max(p.stars,stars);p.wins++;}sfx('win');confetti();}
@@ -702,6 +763,7 @@ let C=null;
 function cardList(isl){const m=new Map();isl.words.concat(isl.spell).forEach(w=>{if(!m.has(w[0].toLowerCase()))m.set(w[0].toLowerCase(),w);});return [...m.values()];}
 function startCards(ii){C={ii,list:shuffle(cardList(ISLANDS[ii])),idx:0,flip:false,known:0,total:0};C.total=C.list.length;renderCards();}
 function renderCards(){
+  music('map');
   SP=null;const isl=ISLANDS[C.ii];
   if(C.idx>=C.list.length){const p=prog(isl.id);const first=!p.cards;p.cards=true;if(first){S.coins+=10;gainXp(30);}save();sfx('win');confetti(20);
     app.innerHTML=`${topbar()}<div class="panel center"><h1>🃏 單字卡完成！</h1><p>${C.total} 個單字都看過了${first?'，獲得 🪙10！':''}</p><div class="row"><button class="btn" onclick="startBattle(${C.ii})">⚔️ 去打怪試試看</button><button class="btn blue" onclick="startCards(${C.ii})">🔁 再看一次</button><button class="btn ghost" onclick="renderIsland(${C.ii})">🏝️ 回到島上</button></div></div>`;return;}
@@ -722,6 +784,7 @@ function cardAns(ok){const w=C.list[C.idx];if(ok){C.known++;sfx('coin');}else{C.
 let P=null;
 function startSpell(ii){const isl=ISLANDS[ii];P={ii,list:shuffle(isl.spell.filter(w=>/^[a-z]+$/i.test(w[0]))),idx:0,ok:0,miss:[]};renderSpell();}
 function renderSpell(){
+  music('map');
   const isl=ISLANDS[P.ii];
   if(P.idx>=P.list.length){const p=prog(isl.id);const first=!p.spell;p.spell=true;if(first){S.coins+=10;gainXp(30);}save();sfx('win');confetti(20);SP=null;
     app.innerHTML=`${topbar()}<div class="panel center"><h1>✏️ 拼字完成！</h1><div class="stats"><div><b>${P.ok}</b>一次就對</div><div><b>${P.list.length}</b>總共</div><div><b>${first?'+10':'+0'}</b>🪙</div></div>${P.miss.length?`<p class="tip">要再加強：${P.miss.map(esc).join('、')}</p>`:'<p>全部一次就對，超強！🏆</p>'}<div class="row"><button class="btn" onclick="startSpell(${P.ii})">🔁 再練一次</button><button class="btn blue" onclick="startBattle(${P.ii})">⚔️ 去打怪</button><button class="btn ghost" onclick="renderIsland(${P.ii})">🏝️ 回到島上</button></div></div>`;return;}
@@ -762,6 +825,7 @@ function startSpeak(ii){
   K={ii,items:[...ws,...gs,...rs],idx:0,scores:[]};renderSpeak();
 }
 function renderSpeak(){
+  music(null);
   SP=null;const isl=ISLANDS[K.ii];
   if(K.idx>=K.items.length){
     const total=Math.round(K.scores.reduce((a,b)=>a+b,0)/Math.max(1,K.items.length)*100);
@@ -844,6 +908,7 @@ function speakNext(sc){if(REC){try{REC.abort();}catch(e){}REC=null;RECDONE=null;
 
 /* ---------- 商店、圖鑑、家長說明 ---------- */
 function renderShop(){
+  music('map');
   const sp=SPORTS[S.hero??0],r=rankIdx(),l=level();
   const nextQ=r<5?Math.ceil((lvlXp(RANK_LV[r+1])-S.xp)/10):0;
   app.innerHTML=`${topbar()}<div class="panel"><button class="back" onclick="renderMap()">← 回地圖</button>
@@ -862,10 +927,12 @@ function renderShop(){
 function buy(i){if(S.coins<SHOP[i][2]){toast(`還差 ${SHOP[i][2]-S.coins} 金幣，去打怪賺吧！`);return;}S.coins-=SHOP[i][2];S.owned.push(i);S.wear.push(i);save();sfx('win');confetti(15);renderShop();}
 function wear(i){S.wear=S.wear.includes(i)?S.wear.filter(x=>x!==i):[...S.wear,i];save();renderShop();}
 function renderDex(){
+  music('map');
   let h='';ISLANDS.forEach((isl,ii)=>isl.monsters.forEach((m,k)=>{const got=S.monsters.includes(ii+'-'+k);h+=`<div class="${got?'':'lock'}"><span>${m[0]}</span><b>${got?esc(m[1]):'？？？'}</b><br><small>${isl.name}${k===2?'・魔王':''}</small></div>`;}));
   app.innerHTML=`${topbar()}<div class="panel"><button class="back" onclick="renderMap()">← 回地圖</button><h2>📖 怪物圖鑑 ${S.monsters.length}/24</h2><p class="sub">打倒怪物就會收進圖鑑，全部收集就是英文大師！</p><div class="dex">${h}</div></div>`;
 }
 function renderHelp(){
+  music('map');
   const wr=Object.values(S.wrong).sort((a,b)=>b.n-a.n).slice(0,30);
   app.innerHTML=`${topbar()}<div class="panel help"><button class="back" onclick="renderMap()">← 回地圖</button><h2>👨‍👩‍👦 家長說明</h2>
   <ul>
