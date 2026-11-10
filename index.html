@@ -515,6 +515,9 @@ function toggleMusic(){S.music=S.music===false;save();if(S.music)music(MT.want||
 function updMbtn(){const b=$('#mbtn');if(!b)return;b.textContent=S.music===false?'🔇':'🎵';b.classList.toggle('off',S.music===false);}
 // 朗讀英文時把音樂調小，聽得比較清楚
 function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.03:.12,AC.currentTime,.08);}
+// 切到別的分頁、別的視窗或縮小時，音樂自動暫停；回來再繼續
+function bgPause(){if(!AC)return;if(document.hidden||!document.hasFocus()){AC.suspend&&AC.suspend();}else if(S.music!==false){AC.resume&&AC.resume();}}
+document.addEventListener('visibilitychange',bgPause);window.addEventListener('blur',()=>setTimeout(bgPause,50));window.addEventListener('focus',bgPause);
 // 瀏覽器規定要先點一下畫面才能出聲音
 document.addEventListener('pointerdown',()=>{ensureAC();if(MT.want&&S.music!==false&&!MT.timer)music(MT.want);},true);
 const sayBtn=(t,cls='say')=>`<button class="${cls}" data-say="${esc(t)}" title="聽發音">🔊</button>`;
