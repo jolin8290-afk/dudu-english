@@ -461,34 +461,35 @@ function ensureAC(){try{AC=AC||new (window.AudioContext||window.webkitAudioConte
 const mtof=m=>440*Math.pow(2,(m-69)/12);
 // 每首：速度、4 個和弦、16 格節奏（x=打、.=休息），bass r=根音 o=高八度，arp 數字=和弦第幾個音
 const TRACKS={
-  map:{bpm:112,vol:.55,wave:'triangle',bassWave:'triangle',arpUp:12,
+  // 柔和版：圓潤的音色、較慢的速度、輕輕的鼓
+  map:{bpm:92,vol:.5,wave:'sine',bassWave:'sine',arpUp:12,cut:1600,
     chords:[[60,64,67],[55,59,62],[57,60,64],[53,57,60]],
-    kick:'x.......x.......',snare:'....x.......x...',hat:'..x...x...x...x.',
-    bass:'r...r.o.r...r.o.',arp:'0.1.2.1.0.1.2.3.'},
-  battle:{bpm:150,vol:.7,wave:'square',bassWave:'sawtooth',arpUp:12,
+    kick:'x...............',snare:'................',hat:'................',
+    bass:'r.......o.......',arp:'0...1...2...1...'},
+  battle:{bpm:118,vol:.6,wave:'triangle',bassWave:'sine',arpUp:12,cut:1500,
     chords:[[57,60,64],[53,57,60],[55,59,62],[52,56,59]],
-    kick:'x...x...x.x.x...',snare:'....x.......x...',hat:'x.x.x.x.x.x.x.xx',
-    bass:'r.r.r.r.o.r.r.r.',arp:'0121012101210121'},
-  boss:{bpm:168,vol:.8,wave:'sawtooth',bassWave:'sawtooth',arpUp:12,
+    kick:'x.......x.......',snare:'........x.......',hat:'....x.......x...',
+    bass:'r...r...r...o...',arp:'0.1.2.1.0.1.2.1.'},
+  boss:{bpm:130,vol:.65,wave:'triangle',bassWave:'sine',arpUp:12,cut:1700,
     chords:[[57,60,64],[58,62,65],[57,60,64],[52,56,59]],
-    kick:'x.x.x.x.x.x.x.x.',snare:'....x.......x.xx',hat:'xxxxxxxxxxxxxxxx',
-    bass:'rrrrrrrorrrrrrro',arp:'0102010201020102',roll:true}
+    kick:'x...x...x...x...',snare:'....x.......x...',hat:'..x...x...x...x.',
+    bass:'r.r.r.r.r.r.o.r.',arp:'0102010201020102'}
 };
 let MG=null,NOISE=null;
 const MT={name:null,want:null,track:null,step:0,next:0,timer:null};
-function mNode(){ensureAC();if(!MG){MG=AC.createGain();MG.gain.value=.14;MG.connect(AC.destination);
+function mNode(){ensureAC();if(!MG){MG=AC.createGain();MG.gain.value=.1;MG.connect(AC.destination);
   NOISE=AC.createBuffer(1,AC.sampleRate*.5,AC.sampleRate);const d=NOISE.getChannelData(0);for(let k=0;k<d.length;k++)d[k]=Math.random()*2-1;}return MG;}
-function tone(wave,f,t,dur,vol,cut){const o=AC.createOscillator(),g=AC.createGain();o.type=wave;o.frequency.value=f;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur);
+function tone(wave,f,t,dur,vol,cut){const o=AC.createOscillator(),g=AC.createGain();o.type=wave;o.frequency.value=f;g.gain.setValueAtTime(.0008,t);g.gain.linearRampToValueAtTime(vol,t+.015);g.gain.exponentialRampToValueAtTime(.0008,t+dur);
   if(cut){const fl=AC.createBiquadFilter();fl.type='lowpass';fl.frequency.value=cut;o.connect(fl);fl.connect(g);}else o.connect(g);g.connect(MG);o.start(t);o.stop(t+dur+.02);}
 function noise(t,dur,vol,hp){const n=AC.createBufferSource(),f=AC.createBiquadFilter(),g=AC.createGain();n.buffer=NOISE;f.type='highpass';f.frequency.value=hp;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur);n.connect(f);f.connect(g);g.connect(MG);n.start(t);n.stop(t+dur+.02);}
 function kick(t,v){const o=AC.createOscillator(),g=AC.createGain();o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(45,t+.12);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+.18);o.connect(g);g.connect(MG);o.start(t);o.stop(t+.2);}
 function playStep(T,step,t,sp){
   const bar=(step>>4)%4,i=step%16,ch=T.chords[bar],v=T.vol;
-  if(T.kick[i]==='x')kick(t,.9*v);
-  if(T.snare[i]==='x'||(T.roll&&bar===3&&i>=12)){noise(t,.12,.35*v,1500);tone('triangle',190,t,.08,.25*v);}
-  if(T.hat[i]==='x')noise(t,.035,.12*v,7000);
-  const b=T.bass[i];if(b!=='.')tone(T.bassWave,mtof(ch[0]-24+(b==='o'?12:0)),t,sp*1.6,.35*v,900);
-  const a=T.arp[i];if(a!=='.'){const n=a==='3'?ch[0]+12:ch[+a];tone(T.wave,mtof(n+T.arpUp),t,sp*.9,.13*v,T.wave==='triangle'?0:2600);}
+  if(T.kick[i]==='x')kick(t,.45*v);
+  if(T.snare[i]==='x'){noise(t,.08,.08*v,2500);tone('sine',200,t,.08,.12*v);}
+  if(T.hat[i]==='x')noise(t,.025,.03*v,8000);
+  const b=T.bass[i];if(b!=='.')tone(T.bassWave,mtof(ch[0]-24+(b==='o'?12:0)),t,sp*3,.3*v,600);
+  const a=T.arp[i];if(a!=='.'){const n=a==='3'?ch[0]+12:ch[+a];tone(T.wave,mtof(n+T.arpUp),t,sp*2.2,.12*v,T.cut);}
 }
 function tick(){if(!MT.track||!AC)return;const sp=60/MT.track.bpm/4;if(MT.next<AC.currentTime-.05)MT.next=AC.currentTime+.05;while(MT.next<AC.currentTime+.12){playStep(MT.track,MT.step,MT.next,sp);MT.next+=sp;MT.step=(MT.step+1)%64;}}
 function stopMusic(){MT.name=null;MT.track=null;if(MT.timer){clearInterval(MT.timer);MT.timer=null;}}
@@ -504,7 +505,7 @@ function music(name){
 function toggleMusic(){S.music=S.music===false;save();if(S.music)music(MT.want||'map');else stopMusic();updMbtn();toast(S.music?'🎵 音樂開啟':'🔇 音樂關閉');}
 function updMbtn(){const b=$('#mbtn');if(!b)return;b.textContent=S.music===false?'🔇':'🎵';b.classList.toggle('off',S.music===false);}
 // 朗讀英文時把音樂調小，聽得比較清楚
-function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.035:.14,AC.currentTime,.08);}
+function duck(on){if(!MG||!AC)return;MG.gain.cancelScheduledValues(AC.currentTime);MG.gain.setTargetAtTime(on?.03:.1,AC.currentTime,.08);}
 // 瀏覽器規定要先點一下畫面才能出聲音
 document.addEventListener('pointerdown',()=>{ensureAC();if(MT.want&&S.music!==false&&!MT.timer)music(MT.want);},true);
 const sayBtn=(t,cls='say')=>`<button class="${cls}" data-say="${esc(t)}" title="聽發音">🔊</button>`;
